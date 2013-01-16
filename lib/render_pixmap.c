@@ -46,7 +46,8 @@ DiaRenderer *
 new_pixmap_renderer(GdkWindow *window, int width, int height)
 {
   DiaGdkRenderer *renderer;
-  GdkColor color;
+  GtkStyleContext *style;
+  GdkRGBA color;
 
   rect.left = 0;
   rect.top = 0;
@@ -55,34 +56,37 @@ new_pixmap_renderer(GdkWindow *window, int width, int height)
 
   renderer = g_object_new (DIA_TYPE_GDK_RENDERER, NULL);
   renderer->transform = dia_transform_new (&rect, &zoom);
-  renderer->pixmap = gdk_pixmap_new(window, width, height, -1);
-  renderer->gc = gdk_gc_new(window);
+  renderer->pixmap =
+     gdk_window_create_similar_surface(window, CAIRO_CONTENT_COLOR,
+                                       width, height);
+  renderer->cr = cairo_create(renderer->pixmap);
 
-  gdk_color_white(gdk_colormap_get_system(), &color);
-  gdk_gc_set_foreground(renderer->gc, &color);
-  gdk_draw_rectangle(renderer->pixmap, renderer->gc, 1,
-		 0, 0, width, height);
+  cairo_save(renderer->cr);
+  cairo_set_source_rgb(renderer->cr, 1, 1, 1);
+  cairo_rectangle(renderer->cr, 0, 0, width, height);
+  cairo_fill(renderer->cr);
+  cairo_restore(renderer->cr);
+  cairo_surface_flush(renderer->pixmap);
 
   return DIA_RENDERER(renderer);
 }
 
 void
 renderer_pixmap_set_pixmap (DiaRenderer *ren, 
-                            GdkDrawable *drawable,
+                            cairo_surface_t *pixmap,
                             int xoffset, int yoffset, 
                             int width, int height)
 {
   DiaGdkRenderer *renderer = DIA_GDK_RENDERER (ren);
 
+  if (renderer->cr != NULL)
+    cairo_destroy(renderer->cr);
+
   if (renderer->pixmap != NULL)
-    g_object_unref(renderer->pixmap);
+    cairo_surface_destroy(renderer->pixmap);
 
-  if (renderer->gc != NULL)
-    g_object_unref(renderer->gc);
-
-  g_object_ref(drawable);
-  renderer->pixmap = drawable;
-  renderer->gc = gdk_gc_new(drawable);
+  renderer->pixmap = cairo_surface_reference(pixmap);
+  renderer->cr = cairo_create(renderer->pixmap);
 
   rect.left = -xoffset;
   rect.top = -yoffset;
@@ -90,7 +94,7 @@ renderer_pixmap_set_pixmap (DiaRenderer *ren,
   rect.bottom = height;
 }
 
-GdkPixmap *
+cairo_surface_t *
 renderer_pixmap_get_pixmap (DiaRenderer *ren) 
 {
   DiaGdkRenderer *renderer = DIA_GDK_RENDERER (ren);

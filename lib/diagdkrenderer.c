@@ -166,17 +166,14 @@ static void
 renderer_init(DiaGdkRenderer *renderer, void* p)
 {
   renderer->line_width = 1;
-  renderer->line_style = GDK_LINE_SOLID;
-  renderer->cap_style = GDK_CAP_BUTT;
-  renderer->join_style = GDK_JOIN_ROUND;
+  renderer->cap_style = CAIRO_LINE_CAP_BUTT;
+  renderer->join_style = CAIRO_LINE_JOIN_ROUND;
 
   renderer->saved_line_style = LINESTYLE_SOLID;
   renderer->dash_length = 10;
   renderer->dot_length = 2;
 
   renderer->highlight_color = NULL;
-  
-  renderer->current_alpha = 1.0;
 }
 
 /** Clean up a renderer object after use.
@@ -188,13 +185,10 @@ renderer_finalize(GObject *object)
   DiaGdkRenderer *renderer = DIA_GDK_RENDERER (object);
 
   if (renderer->pixmap != NULL)
-    g_object_unref(renderer->pixmap);
+    cairo_surface_destroy(renderer->pixmap);
 
-  if (renderer->gc != NULL)
-    g_object_unref(renderer->gc);
-
-  if (renderer->clip_region != NULL)
-    gdk_region_destroy(renderer->clip_region);
+  if (renderer->cr != NULL)
+    cairo_destroy(renderer->cr);
 
   if (renderer->transform)
     g_object_unref (renderer->transform);
@@ -266,34 +260,12 @@ dia_gdk_renderer_class_init(DiaGdkRendererClass *klass)
  */
 static void
 renderer_color_convert(DiaGdkRenderer *renderer,
-		       Color *col, GdkColor *gdk_col)
+		       Color *col, GdkRGBA *gdk_col)
 {
   if (renderer->highlight_color != NULL) {
     color_convert(renderer->highlight_color, gdk_col);
   } else {
     color_convert(col, gdk_col);
-  }
-  if (col->alpha != renderer->current_alpha) {
-    if (col->alpha == 1.0)
-      gdk_gc_set_fill(renderer->gc, GDK_SOLID);
-    else {
-      static gchar bits[9][4] = {
-        { 0x00, 0x00, 0x00, 0x00 }, /*   0% */
-	{ 0x20, 0x02, 0x20, 0x02 },
-        { 0x22, 0x88, 0x22, 0x88 }, /*  25% */
-	{ 0x4A, 0xA4, 0x4A, 0xA4 },
-        { 0x5A, 0xA5, 0x5A, 0xA5 }, /*  50% */
-	{ 0x57, 0xBA, 0x57, 0xBA },
-        { 0xBE, 0xEB, 0xBE, 0xEB }, /*  75% */
-	{ 0xEF, 0xFE, 0xEF, 0xFE },
-        { 0xFF, 0xFF, 0xFF, 0xFF }, /* 100% */
-      };
-      GdkBitmap *stipple = gdk_bitmap_create_from_data (NULL, bits[(int)(9*col->alpha+.49)], 4, 4);
-      gdk_gc_set_stipple (renderer->gc, stipple);
-      g_object_unref (stipple);
-      gdk_gc_set_fill(renderer->gc, GDK_STIPPLED);
-    }
-    renderer->current_alpha = col->alpha;
   }
 }
 
@@ -311,6 +283,8 @@ static void
 set_linewidth (DiaRenderer *object, real linewidth)
 {
   DiaGdkRenderer *renderer = DIA_GDK_RENDERER (object);
+  const gdouble dashed[] = { 5.0 };
+  const gdouble dashed[] = { 5.0, 5.0 };
 
   if (renderer->highlight_color != NULL) {
     /* 6 pixels wide -> 3 pixels beyond normal obj */
@@ -325,11 +299,40 @@ set_linewidth (DiaRenderer *object, real linewidth)
   if (renderer->line_width<=0)
     renderer->line_width = 1; /* Minimum 1 pixel. */
 
-  gdk_gc_set_line_attributes(renderer->gc,
-			     renderer->line_width,
-			     renderer->line_style,
-			     renderer->cap_style,
-			     renderer->join_style);
+  cairo_set_line_width(renderer->cr, renderer->line_width);
+  cairo_set_line_cap(renderer->cr, renderer->cap_style);
+  cairo_set_line_join(renderer->cr, renderer->join_style);
+
+  switch (renderer->saved_line_style) {
+  default:
+  case LINESTYLE_SOLID:
+     cairo_set_dash(renderer->cr, NULL, 0, 0);
+     break;
+  case LINESTYLE_DASHED:
+     cairo_set_dash(renderer->cr, dashed, G_N_ELEMENTS(dashed), 0);
+     break;
+  case LINESTYLE_DASH_DOT:
+     cairo_set_dash(renderer->cr, dash_dot, G_N_ELEMENTS(dash_dot), 0);
+     break;
+  case LINESTYLE_DASH_DOT_DOT:
+     cairo_set_dash(renderer->cr, dash_dot_dot, G_N_ELEMENTS(dash_dot_dot), 0);
+     break;
+  case LINESTYLE_DOTTED:
+     cairo_set_dash(renderer->cr, dotted, G_N_ELEMENTS(dotted), 0);
+     break;
+  }
+}
+
+static void
+set_line_attributes (DiaGdkRenderer *renderer)
+{
+   cairo_set_line_width(renderer->cr, renderer->line_width);
+   cairo_set_line_cap(renderer->cr, renderer->cap_style);
+   cairo_set_line_join(renderer->cr, renderer->join_style);
+
+   /*
+    * TODO: Line style (dashes).
+    */
 }
 
 static void 
@@ -338,26 +341,22 @@ set_linecaps (DiaRenderer *object, LineCaps mode)
   DiaGdkRenderer *renderer = DIA_GDK_RENDERER (object);
 
   if (renderer->highlight_color != NULL) {
-    renderer->cap_style = GDK_CAP_ROUND;
+    renderer->cap_style = CAIRO_LINE_CAP_ROUND;
   } else {
     switch(mode) {
     case LINECAPS_BUTT:
-      renderer->cap_style = GDK_CAP_BUTT;
+      renderer->cap_style = CAIRO_LINE_CAP_BUTT;
       break;
     case LINECAPS_ROUND:
-      renderer->cap_style = GDK_CAP_ROUND;
+      renderer->cap_style = CAIRO_LINE_CAP_ROUND;
       break;
     case LINECAPS_PROJECTING:
-      renderer->cap_style = GDK_CAP_PROJECTING;
+      renderer->cap_style = CAIRO_LINE_CAP_SQUARE;
       break;
     }
   }
  
-  gdk_gc_set_line_attributes(renderer->gc,
-			     renderer->line_width,
-			     renderer->line_style,
-			     renderer->cap_style,
-			     renderer->join_style);
+  set_line_attributes(renderer);
 }
 
 static void 
@@ -366,30 +365,26 @@ set_linejoin (DiaRenderer *object, LineJoin mode)
   DiaGdkRenderer *renderer = DIA_GDK_RENDERER (object);
 
   if (renderer->highlight_color != NULL) {
-    renderer->join_style = GDK_JOIN_ROUND;
+    renderer->join_style = CAIRO_LINE_JOIN_ROUND;
   } else {
     switch(mode) {
     case LINEJOIN_MITER:
-      renderer->join_style = GDK_JOIN_MITER;
+      renderer->join_style = CAIRO_LINE_JOIN_MITER;
       break;
     case LINEJOIN_ROUND:
-      renderer->join_style = GDK_JOIN_ROUND;
+      renderer->join_style = CAIRO_LINE_JOIN_ROUND;
       break;
     case LINEJOIN_BEVEL:
-      renderer->join_style = GDK_JOIN_BEVEL;
+      renderer->join_style = CAIRO_LINE_JOIN_BEVEL;
       break;
     default :
       /* invalid mode, just here to set a breakpoint */
-      renderer->join_style = GDK_JOIN_ROUND;
+      renderer->join_style = CAIRO_LINE_JOIN_ROUND;
       break;
     }
   }
- 
-  gdk_gc_set_line_attributes(renderer->gc,
-			     renderer->line_width,
-			     renderer->line_style,
-			     renderer->cap_style,
-			     renderer->join_style);
+
+  set_line_attributes(renderer);
 }
 
 /** Set the dashes for this renderer.
@@ -399,16 +394,19 @@ set_linejoin (DiaRenderer *object, LineJoin mode)
 void
 dia_gdk_renderer_set_dashes(DiaGdkRenderer *renderer, int offset)
 {
-  gint8 dash_list[6];
+  double dash_list[6];
   int hole_width;
-  
+
+  renderer->dash_offset = offset;
+
   switch(renderer->saved_line_style) {
   case LINESTYLE_SOLID:
+    cairo_set_dash(renderer->cr, NULL, 0, 0);
     break;
   case LINESTYLE_DASHED:
     dash_list[0] = renderer->dash_length;
     dash_list[1] = renderer->dash_length;
-    gdk_gc_set_dashes(renderer->gc, offset, dash_list, 2);
+    cairo_set_dash(renderer->cr, dash_list, 2, offset);
     break;
   case LINESTYLE_DASH_DOT:
     hole_width = (renderer->dash_length - renderer->dot_length) / 2;
@@ -418,7 +416,7 @@ dia_gdk_renderer_set_dashes(DiaGdkRenderer *renderer, int offset)
     dash_list[1] = hole_width;
     dash_list[2] = renderer->dot_length;
     dash_list[3] = hole_width;
-    gdk_gc_set_dashes(renderer->gc, offset, dash_list, 4);
+    cairo_set_dash(renderer->cr, dash_list, 4, offset);
     break;
   case LINESTYLE_DASH_DOT_DOT:
     hole_width = (renderer->dash_length - 2*renderer->dot_length) / 3;
@@ -430,12 +428,12 @@ dia_gdk_renderer_set_dashes(DiaGdkRenderer *renderer, int offset)
     dash_list[3] = hole_width;
     dash_list[4] = renderer->dot_length;
     dash_list[5] = hole_width;
-    gdk_gc_set_dashes(renderer->gc, offset, dash_list, 6);
+    cairo_set_dash(renderer->cr, dash_list, 6, offset);
     break;
   case LINESTYLE_DOTTED:
     dash_list[0] = renderer->dot_length;
     dash_list[1] = renderer->dot_length;
-    gdk_gc_set_dashes(renderer->gc, offset, dash_list, 2);
+    cairo_set_dash(renderer->cr, dash_list, 2, offset);
     break;
   }
 }
@@ -446,32 +444,8 @@ set_linestyle (DiaRenderer *object, LineStyle mode)
   DiaGdkRenderer *renderer = DIA_GDK_RENDERER (object);
 
   renderer->saved_line_style = mode;
-  switch(mode) {
-  case LINESTYLE_SOLID:
-    renderer->line_style = GDK_LINE_SOLID;
-    break;
-  case LINESTYLE_DASHED:
-    renderer->line_style = GDK_LINE_ON_OFF_DASH;
-    dia_gdk_renderer_set_dashes(renderer, 0);
-    break;
-  case LINESTYLE_DASH_DOT:
-    renderer->line_style = GDK_LINE_ON_OFF_DASH;
-    dia_gdk_renderer_set_dashes(renderer, 0);
-    break;
-  case LINESTYLE_DASH_DOT_DOT:
-    renderer->line_style = GDK_LINE_ON_OFF_DASH;
-    dia_gdk_renderer_set_dashes(renderer, 0);
-    break;
-  case LINESTYLE_DOTTED:
-    renderer->line_style = GDK_LINE_ON_OFF_DASH;
-    dia_gdk_renderer_set_dashes(renderer, 0);
-    break;
-  }
-  gdk_gc_set_line_attributes(renderer->gc,
-			     renderer->line_width,
-			     renderer->line_style,
-			     renderer->cap_style,
-			     renderer->join_style);
+  dia_gdk_renderer_set_dashes(renderer, 0);
+  set_line_attributes(renderer);
 }
 
 static void 
@@ -522,34 +496,32 @@ draw_line (DiaRenderer *object, Point *start, Point *end, Color *line_color)
   dia_transform_coords(renderer->transform, end->x, end->y, &x2, &y2);
   
   renderer_color_convert(renderer, line_color, &color);
-  gdk_gc_set_foreground(gc, &color);
+  gdk_cairo_set_source_rgba(renderer->cr, &color);
   
-  gdk_draw_line(renderer->pixmap, gc,
-		x1, y1,	x2, y2);
+  cairo_move_to(renderer->cr, x1, y1);
+  cairo_line_to(renderer->cr, x2, y2);
+  cairo_stroke(renderer->cr);
 }
 
 static void 
 fill_polygon (DiaRenderer *object, Point *points, int num_points, Color *line_color)
 {
   DiaGdkRenderer *renderer = DIA_GDK_RENDERER (object);
-  GdkGC *gc = renderer->gc;
-  GdkColor color;
-  GdkPoint *gdk_points;
+  GdkRGBA color;
   int i,x,y;
-  
-  gdk_points = g_new(GdkPoint, num_points);
 
   for (i=0;i<num_points;i++) {
     dia_transform_coords(renderer->transform, points[i].x, points[i].y, &x, &y);
-    gdk_points[i].x = x;
-    gdk_points[i].y = y;
+    if (i == 0) {
+       cairo_move_to(renderer->cr, x, y);
+    } else {
+       cairo_line_to(renderer->cr, x, y);
+    }
   }
   
   renderer_color_convert(renderer, line_color, &color);
-  gdk_gc_set_foreground(gc, &color);
-  
-  gdk_draw_polygon(renderer->pixmap, gc, TRUE, gdk_points, num_points);
-  g_free(gdk_points);
+  gdk_cairo_set_source_rgba(renderer->cr, &color);
+  cairo_fill(renderer->cr);
 }
 
 static void
@@ -561,8 +533,7 @@ draw_fill_arc (DiaRenderer *object,
           gboolean fill)
 {
   DiaGdkRenderer *renderer = DIA_GDK_RENDERER (object);
-  GdkGC *gc = renderer->gc;
-  GdkColor gdkcolor;
+  GdkRGBA gdkcolor;
   gint top, left, bottom, right;
   real dangle;
   
@@ -577,7 +548,11 @@ draw_fill_arc (DiaRenderer *object,
     return;
 
   renderer_color_convert(renderer, color, &gdkcolor);
-  gdk_gc_set_foreground(gc, &gdkcolor);
+  gdk_cairo_set_source_rgba(renderer->cr, &gdkcolor);
+
+  cairo_arc(renderer->cr,
+            left, top,
+            right-left,
 
   dangle = angle2-angle1;
   if (dangle<0)
@@ -934,7 +909,7 @@ draw_polyline (DiaRenderer *self,
 {
   DiaGdkRenderer *renderer = DIA_GDK_RENDERER (self);
   GdkGC *gc = renderer->gc;
-  GdkColor color;
+  GdkRGBA color;
   GdkPoint *gdk_points;
   int i,x,y;
   
@@ -990,8 +965,7 @@ draw_fill_rounded_rect (DiaRenderer *self,
 		        gboolean fill)
 {
   DiaGdkRenderer *renderer = DIA_GDK_RENDERER (self);
-  GdkGC *gc = renderer->gc;
-  GdkColor gdkcolor;
+  GdkRGBA gdkcolor;
   gint top, bottom, left, right, r, d;
   gint offset = 0; /* to compensate for a radius smaller than line_width */
 
@@ -1014,8 +988,7 @@ draw_fill_rounded_rect (DiaRenderer *self,
   if (renderer->line_width > d)
     offset = (renderer->line_width + 1) / 2;
 
-  renderer_color_convert(renderer, color, &gdkcolor);
-  gdk_gc_set_foreground(gc, &gdkcolor);
+  gdk_cairo_set_source_rgba(renderer->cr, &gdkcolor);
 
   if (d > 0) {
     if (offset > 0) {

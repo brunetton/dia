@@ -24,6 +24,7 @@
 #include <math.h>
 
 #include <gdk/gdkkeysyms.h>
+#include <gdk/gdkkeysyms-compat.h>
 
 #include "propinternals.h"
 #include "text.h"

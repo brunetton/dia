@@ -47,7 +47,7 @@ typedef struct _LineBBExtras LineBBExtras;
 typedef struct _ElementBBExtras ElementBBExtras;
 
 /* In color.h: */
-typedef struct _Color Color;
+typedef struct _GdkRGBA Color;
 
 /* In connection.h: */
 typedef struct _Connection Connection;

@@ -33,17 +33,16 @@ struct _DiaGdkRenderer
 
   /*< private >*/
   DiaTransform *transform;        /*!< Our link to the display settings */
-  GdkPixmap *pixmap;              /*!< The pixmap shown in this display  */
+  cairo_surface_t *pixmap;        /*!< The pixmap shown in this display  */
   guint32 width;                  /*!< The width of the pixmap in pixels */
   guint32 height;                 /*!< The height of the pixmap in pixels */
-  GdkGC *gc;                      /*!< The Gdk graphics context used */
-  GdkRegion *clip_region;         /*!< Clipping region in effect when interactive */
+  cairo_t *cr;                    /*!< The cairo context for drawing */
+  GdkRectangle clip_region;       /*!< Clipping region in effect when interactive */
 
   /* line attributes: */
   int line_width;
-  GdkLineStyle line_style;
-  GdkCapStyle cap_style;
-  GdkJoinStyle join_style;
+  cairo_line_cap_t cap_style;
+  cairo_line_join_t join_style;
 
   LineStyle saved_line_style;
   int dash_length;
@@ -51,8 +50,6 @@ struct _DiaGdkRenderer
 
   /** If non-NULL, this rendering is a highlighting with the given color. */
   Color *highlight_color;
-
-  real   current_alpha;
 };
 
 struct _DiaGdkRendererClass

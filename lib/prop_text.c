@@ -30,6 +30,7 @@
 #include <gtk/gtk.h>
 #include <gdk/gdk.h>
 #include <gdk/gdkkeysyms.h>
+#include <gdk/gdkkeysyms-compat.h>
 #include "widgets.h"
 #include "properties.h"
 #include "propinternals.h"

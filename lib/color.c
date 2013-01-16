@@ -24,14 +24,12 @@
 
 #include "color.h"
 
-static GdkColormap *colormap = NULL;
-
 #ifndef G_OS_WIN32 
 Color color_black = { 0.0f, 0.0f, 0.0f, 1.0f };
 Color color_white = { 1.0f, 1.0f, 1.0f, 1.0f };
 #endif
 
-GdkColor color_gdk_black, color_gdk_white;
+GdkRGBA color_gdk_black, color_gdk_white;
 
 gboolean _color_initialized = FALSE;
 
@@ -41,11 +39,7 @@ void
 color_init(void)
 {
   if (!_color_initialized) {
-    GdkVisual *visual = gtk_widget_get_default_visual();
-    colormap = gdk_colormap_new (visual, FALSE); 
-
     _color_initialized = TRUE;
-
     color_convert(&color_black, &color_gdk_black);
     color_convert(&color_white, &color_gdk_white);
   }
@@ -61,12 +55,7 @@ color_init(void)
 Color *
 color_new_rgb(float r, float g, float b)
 {
-  Color *col = g_new(Color, 1);
-  col->red = r;
-  col->green = g;
-  col->blue = b;
-  col->alpha = 1.0;
-  return col;
+  return color_new_rgba(r, g, b, 1.0);
 }
 
 /** Allocate a new color object wtih the given values.
@@ -79,7 +68,14 @@ color_new_rgb(float r, float g, float b)
 Color *
 color_new_rgba(float r, float g, float b, float alpha)
 {
-  Color *col = g_new(Color, 1);
+  GdkRGBA *col;
+
+  /*
+   * TODO: Refactor color to just use GdkRGBA.
+   *       The Color code is using g_free(), GdkRGBA uses g_slice_free().
+   */
+
+  col = g_new0(GdkRGBA, 1);
   col->red = r;
   col->green = g;
   col->blue = b;
@@ -92,18 +88,9 @@ color_new_rgba(float r, float g, float b, float alpha)
  * @param gdkcolor Return value: GDK color object to fill in.
  */
 void
-color_convert(const Color *color, GdkColor *gdkcolor)
+color_convert(const Color *color, GdkRGBA *gdkcolor)
 {
-  gdkcolor->red = (guint16)(color->red*65535);
-  gdkcolor->green = (guint16)(color->green*65535);
-  gdkcolor->blue = (guint16)(color->blue*65535);
-
-  if (_color_initialized) {
-    if (!gdk_colormap_alloc_color (colormap, gdkcolor, TRUE, TRUE))
-      g_warning ("color_convert failed.");
-  } else {
-    g_warning("Can't color_convert in non-interactive app (w/o color_init())");
-  }
+  memcpy(gdkcolor, color, sizeof *gdkcolor);
 }
 
 /** Compare two color objects.

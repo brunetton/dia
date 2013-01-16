@@ -22,9 +22,9 @@
 
 DiaRenderer *new_pixmap_renderer(GdkWindow *window, int width, int height);
 void renderer_pixmap_set_pixmap(DiaRenderer *renderer,
-                                GdkDrawable *drawable, 
+                                cairo_surface_t *pixmap,
                                 int xoffset, int yoffset,
                                 int width, int height);
-GdkPixmap *renderer_pixmap_get_pixmap(DiaRenderer *renderer);
+cairo_surface_t *renderer_pixmap_get_pixmap(DiaRenderer *renderer);
 
 #endif /* RENDER_PIXMAP_H */

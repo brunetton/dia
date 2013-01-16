@@ -96,11 +96,6 @@ _diagram_data_object_remove (DiagramData* dia,Layer* layer,DiaObject* obj)
 {
 }
 
-static void
-_diagram_data_selection_changed (DiagramData* dia, int n)
-{
-}
-
 /** Initialize a new diagram data object.
  * @param data A diagram data object to initialize.
  */
@@ -841,7 +836,6 @@ data_render_paginated (DiagramData *data, DiaRenderer *renderer, gpointer user_d
   gdouble width, height;
   gdouble x, y, initx, inity;
   gint xpos, ypos;
-  guint nobjs = 0;
 
   /* the usable area of the page */
   width = data->paper.width;

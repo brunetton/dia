@@ -291,7 +291,7 @@ xmlDocPtr
 xmlDoParseFile(const char *filename)
 {
   xmlDocPtr doc;
-  xmlErrorPtr err;
+  G_GNUC_UNUSED xmlErrorPtr err;
 
   doc = xmlParseFile(filename);
   if (!doc)

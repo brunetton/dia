@@ -27,7 +27,6 @@
 #endif
 
 #include <glib.h>
-#undef GTK_DISABLE_DEPRECATED /* GtkList */
 #include <gtk/gtk.h>
 #define WIDGET GtkWidget
 #include "widgets.h"
@@ -127,7 +126,7 @@ frame_beginprop_get_widget(FrameProperty *prop, PropDialog *dialog)
   gchar *foldstring = g_strdup_printf("%s <<<", _(prop->common.descr->description));
   gchar *unfoldstring = g_strdup_printf("%s >>>", _(prop->common.descr->description));
   GtkWidget *frame = gtk_frame_new(NULL);
-  GtkWidget *vbox = gtk_vbox_new(FALSE,2);
+  GtkWidget *vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
   GtkWidget *foldbutton = gtk_button_new_with_label(foldstring);
   GtkWidget *unfoldbutton = gtk_button_new_with_label(unfoldstring);
   
@@ -206,7 +205,7 @@ static const PropertyOps frame_endprop_ops = {
 static WIDGET *
 multicol_beginprop_get_widget(MulticolProperty *prop, PropDialog *dialog) 
 { 
-  GtkWidget *multicol = gtk_hbox_new(FALSE,1);
+  GtkWidget *multicol = gtk_box_new(GTK_ORIENTATION_HORIZONTAL,1);
   
   gtk_container_set_border_width (GTK_CONTAINER(multicol), 2);
   gtk_widget_show(multicol);
@@ -222,7 +221,7 @@ multicol_beginprop_get_widget(MulticolProperty *prop, PropDialog *dialog)
 static WIDGET *
 multicol_columnprop_get_widget(MulticolProperty *prop, PropDialog *dialog) 
 { 
-  GtkWidget *col = gtk_vbox_new(FALSE,1);
+  GtkWidget *col = gtk_box_new(GTK_ORIENTATION_VERTICAL,1);
   
   gtk_container_set_border_width (GTK_CONTAINER(col), 2);
   gtk_widget_show(col);
@@ -314,7 +313,7 @@ notebook_beginprop_get_widget(NotebookProperty *prop, PropDialog *dialog)
 static WIDGET *
 notebook_pageprop_get_widget(NotebookProperty *prop, PropDialog *dialog) 
 { 
-  GtkWidget *page = gtk_vbox_new(FALSE,1);
+  GtkWidget *page = gtk_box_new(GTK_ORIENTATION_VERTICAL,1);
   GtkWidget *label = gtk_label_new(_(prop->common.descr->description));
   
   gtk_container_set_border_width (GTK_CONTAINER(page), 2);
@@ -441,49 +440,94 @@ listprop_copy(ListProperty *src)
   return prop;
 }
 
-static void 
-listprop_select_child_signal(GtkList *list,
-                             GtkWidget *child,
-                             ListProperty *prop)
+static gint
+get_row_offset(GtkTreeModel *model,
+               GtkTreeIter  *iter)
 {
-  prop->w_selected = gtk_list_child_position(list,child);
+  GtkTreePath *path;
+  gint *indices;
+  gint ret;
+
+  /*
+   * XXX: Find a better way to do this or avoid having
+   *      to by changing how this all works.
+   */
+
+  path = gtk_tree_model_get_path(model, iter);
+  indices = gtk_tree_path_get_indices(path);
+  ret = indices[0];
+  gtk_tree_path_free(path);
+
+  return ret;
+}
+
+static void 
+listprop_selection_changed_signal (GtkTreeSelection *sel,
+                                   ListProperty     *prop)
+{
+  GtkTreeModel *model;
+  GtkTreeIter iter;
+
+  prop->w_selected = -1;
+
+  if (gtk_tree_selection_get_selected(sel, &model, &iter)) {
+    prop->w_selected = get_row_offset(model, &iter);
+  }
 }
 
 static WIDGET *
 listprop_get_widget(ListProperty *prop, PropDialog *dialog) 
 { 
-  GtkWidget *ret = gtk_list_new();
+  GtkTreeViewColumn *col;
+  GtkTreeSelection *sel;
+  GtkCellRenderer *cell;
+  GtkListStore *model;
+  GtkWidget *ret;
 
-  gtk_list_set_selection_mode(GTK_LIST(ret),GTK_SELECTION_BROWSE);
-  gtk_list_unselect_all(GTK_LIST(ret));
+  ret = gtk_tree_view_new();
+  gtk_tree_view_set_headers_visible(GTK_TREE_VIEW(ret), FALSE);
+
+  model = gtk_list_store_new(1, G_TYPE_STRING);
+  gtk_tree_view_set_model(GTK_TREE_VIEW(ret), GTK_TREE_MODEL(model));
+
+  col = gtk_tree_view_column_new();
+  cell = gtk_cell_renderer_text_new();
+  gtk_cell_layout_pack_start(GTK_CELL_LAYOUT(col), cell, TRUE);
+  gtk_cell_layout_add_attribute(GTK_CELL_LAYOUT(col), cell, "text", 0);
+  gtk_tree_view_append_column(GTK_TREE_VIEW(ret), col);
+
+  sel = gtk_tree_view_get_selection(GTK_TREE_VIEW(ret));
+  gtk_tree_selection_set_mode(sel, GTK_SELECTION_BROWSE);
+  gtk_tree_selection_unselect_all(sel);
   
-  g_signal_connect(G_OBJECT(ret), "select-child",
-                   G_CALLBACK (listprop_select_child_signal), prop);
+  g_signal_connect(G_OBJECT(sel), "changed",
+                   G_CALLBACK (listprop_selection_changed_signal), prop);
 
   prophandler_connect(&prop->common, G_OBJECT(ret), "selection-changed");
   return ret;
 }
 
-static GtkWidget *
-make_item(const gchar *line) {
-  GtkWidget *item = gtk_list_item_new_with_label(line);
-  gtk_widget_show(item);
-  return item;
-}
-
 static void 
 listprop_reset_widget(ListProperty *prop, WIDGET *widget)
 {
+  GtkTreeSelection *sel;
+  GtkTreeModel *model;
+  GtkTreeIter iter;
   guint i;
-  GList *items = NULL;
-  gtk_list_clear_items(GTK_LIST(widget),0,-1);
 
-  for (i = 0; i < prop->lines->len; i++) {
-    items = g_list_append(items, make_item(g_ptr_array_index(prop->lines,i)));
-  }
-  gtk_list_append_items(GTK_LIST(widget),items);
+  model = gtk_tree_view_get_model(GTK_TREE_VIEW(widget));
+  gtk_list_store_clear(GTK_LIST_STORE(model));
   prop->w_selected = prop->selected;
-  gtk_list_select_item(GTK_LIST(widget),prop->selected);
+  for (i = 0; i < prop->lines->len; i++) {
+    gtk_list_store_append(GTK_LIST_STORE(model), &iter);
+    gtk_list_store_set(GTK_LIST_STORE(model), &iter,
+                       0, g_ptr_array_index(prop->lines, i),
+                       -1);
+    if (i == prop->w_selected) {
+      sel = gtk_tree_view_get_selection(GTK_TREE_VIEW(widget));
+      gtk_tree_selection_select_iter(sel, &iter);
+    }
+  }
 }
 
 static void 

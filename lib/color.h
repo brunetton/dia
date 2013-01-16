@@ -23,21 +23,10 @@
 #include <gdk/gdk.h>
 #include "diavar.h"
 
-/*!
- * \brief Dia's internal color representation
- * \ingroup ObjectParts
- */
-struct _Color {
-  float red;   /*!< 0..1 */
-  float green; /*!< 0..1 */
-  float blue;  /*!< 0..1 */
-  float alpha; /*!< 0..1 */
-};
-
 void color_init(void);
 Color *color_new_rgb(float r, float g, float b);
 Color *color_new_rgba(float r, float g, float b, float alpha);
-void color_convert(const Color *color, GdkColor *gdkcolor);
+void color_convert(const Color *color, GdkRGBA *gdkcolor);
 gboolean color_equals(const Color *color1, const Color *color2);
 
 #ifdef G_OS_WIN32
@@ -46,17 +35,6 @@ static Color color_white = { 1.0f, 1.0f, 1.0f, 1.0f };
 #else
 DIAVAR Color color_black, color_white;
 #endif
-DIAVAR GdkColor color_gdk_black, color_gdk_white;
-
-#define DIA_COLOR_TO_GDK(from, to) \
-(to).pixel = 0; \
-(to).red = (from).red*65535; \
-(to).green = (from).green*65535; \
-(to).blue = (from).blue*65535;
-#define GDK_COLOR_TO_DIA(from, to) \
-(to).red = (from).red/65535.0; \
-(to).green = (from).green/65535.0; \
-(to).blue = (from).blue/65535.0; \
-(to).alpha = 1.0;
+DIAVAR GdkRGBA color_gdk_black, color_gdk_white;
 
 #endif /* COLOR_H */
